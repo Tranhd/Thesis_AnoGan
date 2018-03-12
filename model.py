@@ -28,29 +28,25 @@ class AnoGan(object):
             return tf.maximum(alpha * x, x)
 
         with tf.variable_scope(name, reuse=reuse):
-            #print(x.get_shape())
+            print(x.get_shape())
 
             conv0 = tf.layers.conv2d(x, 128, [4, 4], strides=(2,2), padding='same')
             a0 = lrelu(conv0, alpha = self.lrelu_alpha)
-            #print(a0.get_shape())
+            print(a0.get_shape())
 
             conv1 = tf.layers.conv2d(a0, 256, [4, 4], strides=(2,2), padding='same')
             a1 = lrelu(tf.layers.batch_normalization(conv1, training=self.isTrain), self.lrelu_alpha)
-            #print(a1.get_shape())
+            print(a1.get_shape())
 
             conv2 = tf.layers.conv2d(a1, 512, [4, 4], strides=(2,2), padding='same')
             a2 = lrelu(tf.layers.batch_normalization(conv2, training=self.isTrain), self.lrelu_alpha)
-            #print(a2.get_shape())
+            print(a2.get_shape())
 
-            conv3 = tf.layers.conv2d(a2, 1024, [4, 4], strides=(2,2), padding='same')
-            a3 = lrelu(tf.layers.batch_normalization(conv3, training=self.isTrain), self.lrelu_alpha)
-            #print(a3.get_shape())
+            conv3 = tf.layers.conv2d(a2, 1, [4, 4], strides=(2,2), padding='valid')
+            a3 = tf.nn.sigmoid(conv3)
+            print(a3.get_shape())
 
-            conv4 = tf.layers.conv2d(a3, 1, [4, 4], strides=(2,2), padding='same')
-            a4 = tf.nn.sigmoid(conv4)
-            #print(a4.get_shape())
-
-            return a4, conv4
+            return a3, conv3
 
     def generator_mnist(self, z, reuse=False, name='Generator'):
         def lrelu(x, alpha=0.2):
@@ -99,7 +95,7 @@ class AnoGan(object):
 
         with tf.variable_scope('Loss'):
             self.d_loss_real = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
+                tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)*(1 - 0.1)))
             self.d_loss_fake = tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
             self.g_loss = tf.reduce_mean(
@@ -132,7 +128,7 @@ class AnoGan(object):
         N = len(images) // batch_size # Number of iterations per epoch
         im = list()
         try:
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir)) # Restore if checkpoint exists.
+            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir+'sadsad')) # Restore if checkpoint exists.
         except:
             self.sess.run(tf.global_variables_initializer()) # Otherwise initialize.
         print('Starting GAN training ...')
@@ -148,6 +144,8 @@ class AnoGan(object):
                 if batch_end <= len(images):
                     batch = images[batch_start:batch_end, :, :, :]
                     batch_z = np.random.uniform(-1, 1, size=(batch_size, self.z_dim))
+                    _, g_loss_= sess.run([self.g_opt, self.g_loss], feed_dict={self.z: batch_z, self.isTrain: True,
+                                                                               self.learning_rate: learning_rate})
                     _, d_loss_ = self.sess.run([self.d_opt,self.d_loss],
                                                feed_dict={self.inputs: batch, self.z: batch_z, self.isTrain: True,
                                                           self.learning_rate: learning_rate})
@@ -173,9 +171,9 @@ sess = tf.Session()
 net = AnoGan(sess)
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
 
-im = net.train_model(mnist.train.images[1:100,:,:,:], epochs=5, batch_size=50, learning_rate=1e-3)
-rows, cols = 1, 5
-fig, axes = plt.subplots(figsize=(12,4), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
+im = net.train_model(mnist.train.images, epochs=25, batch_size=64, learning_rate=1e-3)
+rows, cols = 5, 5
+fig, axes = plt.subplots(figsize=(12,12), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
 k = 0
 print(np.shape(im[2]))
 for ax_row in axes:
