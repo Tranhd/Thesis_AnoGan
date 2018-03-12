@@ -78,7 +78,7 @@ class AnoGan(object):
             #print(a2.get_shape())
 
             conv3 = tf.layers.conv2d_transpose(a2, 1, [4, 4], strides=(2, 2), padding='same')
-            a3 = tf.nn.tanh(conv3)
+            a3 = tf.nn.sigmoid(conv3)
             #print(a3.get_shape())
 
             return a3
@@ -98,8 +98,9 @@ class AnoGan(object):
 
 
         with tf.variable_scope('Loss'):
+            D_logits_smooth = tf.ones_like(self.D_logits) * (1 - 0.1)
             self.d_loss_real = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=tf.ones_like(self.D)))
+                tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits, labels=D_logits_smooth))
             self.d_loss_fake = tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.zeros_like(self.D_)))
             self.g_loss = tf.reduce_mean(
@@ -172,8 +173,9 @@ tf.reset_default_graph()
 sess = tf.Session()
 net = AnoGan(sess)
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
+print(np.min(mnist.train.images[2,:,:,:]))
 
-im = net.train_model(mnist.train.images[1:100,:,:,:], epochs=5, batch_size=50, learning_rate=1e-3)
+#im = net.train_model(mnist.train.images[1:100,:,:,:], epochs=5, batch_size=50, learning_rate=1e-3)
 rows, cols = 1, 5
 fig, axes = plt.subplots(figsize=(12,4), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
 k = 0
