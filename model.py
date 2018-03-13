@@ -28,23 +28,23 @@ class AnoGan(object):
             return tf.maximum(alpha * x, x)
 
         with tf.variable_scope(name, reuse=reuse):
-            #print(x.get_shape())
+            print(x.get_shape())
 
-            conv0 = tf.layers.conv2d(x, 128, [4, 4], strides=(2,2), padding='same')
+            conv0 = tf.layers.conv2d(x, 64, [5, 5], strides=(2,2), padding='same')
             a0 = lrelu(conv0, alpha = self.lrelu_alpha)
-            #print(a0.get_shape())
+            print(a0.get_shape())
 
-            conv1 = tf.layers.conv2d(a0, 256, [4, 4], strides=(2,2), padding='same')
+            conv1 = tf.layers.conv2d(a0, 128, [4, 4], strides=(2,2), padding='same')
             a1 = lrelu(tf.layers.batch_normalization(conv1, training=self.isTrain), self.lrelu_alpha)
-            #print(a1.get_shape())
+            print(a1.get_shape())
 
-            conv2 = tf.layers.conv2d(a1, 512, [4, 4], strides=(2,2), padding='same')
+            conv2 = tf.layers.conv2d(a1, 1, [4, 4], strides=(2,2), padding='same')
             a2 = lrelu(tf.layers.batch_normalization(conv2, training=self.isTrain), self.lrelu_alpha)
-            #print(a2.get_shape())
+            print(a2.get_shape())
 
-            conv3 = tf.layers.conv2d(a2, 1, [4, 4], strides=(2,2), padding='valid')
+            conv3 = tf.layers.dense(tf.layers.flatten(a2), 1)
             a3 = tf.nn.sigmoid(conv3)
-            #print(a3.get_shape())
+            print(a3.get_shape())
 
             return a3, conv3
 
@@ -55,27 +55,27 @@ class AnoGan(object):
         with tf.variable_scope(name, reuse=reuse):
             # 1st hidden layer
 
-            dense0 = tf.layers.dense(z, 1024*7*7)
-            batch0 = tf.layers.batch_normalization(dense0, training=self.isTrain)
+            dense0 = tf.layers.dense(z, 128*7*7)
+            batch0 = lrelu(tf.layers.batch_normalization(dense0, training=self.isTrain))
+            print(batch0.get_shape())
+            x = tf.reshape(batch0, [-1, 7, 7, 128])
+            print(x.get_shape())
 
-            x = tf.reshape(batch0, [-1, 7, 7, 1024])
-            #print(x.get_shape())
-
-            conv0 = tf.layers.conv2d_transpose(x, 512, [4, 4], strides=(2, 2), padding='same')
+            conv0 = tf.layers.conv2d_transpose(x, 64, [4, 4], strides=(1, 1), padding='same')
             a0 = lrelu(tf.layers.batch_normalization(conv0, training=self.isTrain), 0.2)
-            #print(a0.get_shape())
+            print(a0.get_shape())
 
-            conv1 = tf.layers.conv2d_transpose(a0, 256, [4, 4], strides=(1, 1), padding='same')
+            conv1 = tf.layers.conv2d_transpose(a0, 32, [4, 4], strides=(1, 1), padding='same')
             a1 = lrelu(tf.layers.batch_normalization(conv1, training=self.isTrain), 0.2)
-            #print(a1.get_shape())
+            print(a1.get_shape())
 
-            conv2 = tf.layers.conv2d_transpose(a1, 128, [4, 4], strides=(1, 1), padding='same')
+            conv2 = tf.layers.conv2d_transpose(a1, 32, [3, 3], strides=(2, 2), padding='same')
             a2 = lrelu(tf.layers.batch_normalization(conv2, training=self.isTrain), 0.2)
-            #print(a2.get_shape())
+            print(a2.get_shape())
 
             conv3 = tf.layers.conv2d_transpose(a2, 1, [4, 4], strides=(2, 2), padding='same')
             a3 = tf.nn.tanh(conv3)
-            #print(a3.get_shape())
+            print(a3.get_shape())
 
             return a3
 
@@ -123,6 +123,7 @@ class AnoGan(object):
                 self.g_loss, var_list=self.g_vars)
 
         self.saver = tf.train.Saver()
+        self.grads = tf.gradients(self.g_loss, self.g_vars)
 
     def train_model(self, images, batch_size=64, epochs=50, learning_rate=1e-3, beta1 = 0.002, verbose=1):
         N = len(images) // batch_size # Number of iterations per epoch
@@ -146,15 +147,14 @@ class AnoGan(object):
                     batch_z = np.random.uniform(-1, 1, size=(batch_size, self.z_dim))
                     _, g_loss_= sess.run([self.g_opt, self.g_loss], feed_dict={self.z: batch_z, self.isTrain: True,
                                                                                self.learning_rate: learning_rate})
-                    _, d_loss_ = self.sess.run([self.d_opt,self.d_loss],
+                    _, d_loss_ = self.sess.run([self.d_opt, self.d_loss],
                                                feed_dict={self.inputs: batch, self.z: batch_z, self.isTrain: True,
                                                           self.learning_rate: learning_rate})
-                    _, g_loss_= sess.run([self.g_opt, self.g_loss], feed_dict={self.z: batch_z, self.isTrain: True,
-                                                                               self.learning_rate: learning_rate})
                     d_loss = d_loss + d_loss_
                     g_loss = g_loss + g_loss_
                     batch_start = batch_end
                     batch_end = batch_end + batch_size
+                    #print(grads)
             if verbose:
                 print(f'Average generator loss {g_loss/N}')
                 print(f'Average discriminator loss {d_loss/N}')
@@ -167,21 +167,18 @@ class AnoGan(object):
 
 
 tf.reset_default_graph()
+mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
 sess = tf.Session()
 net = AnoGan(sess)
-mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
-
-im = net.train_model(((mnist.train.images)-0.5)/0.5, epochs=25, batch_size=64, learning_rate=1e-4)
+im = net.train_model(((mnist.train.images[1:400,:,:,:])-0.5)/0.5, epochs=100, batch_size=100, learning_rate=0.02)
 rows, cols = 5, 5
-fig, axes = plt.subplots(figsize=(12,12), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
+fig, axes = plt.subplots(figsize=(8,8), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
 k = 0
 print(np.shape(im[2]))
 for ax_row in axes:
     for ax in ax_row:
-        print(np.shape(im[k]))
-        img = im[k]
+        img = im[k+74]
         img = img[0][0][:,:,:]
-        print(np.shape(img))
         k = k+1
         ax.imshow(np.squeeze(img), cmap='Greys_r')
         ax.xaxis.set_visible(False)
