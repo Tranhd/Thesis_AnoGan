@@ -28,23 +28,23 @@ class AnoGan(object):
             return tf.maximum(alpha * x, x)
 
         with tf.variable_scope(name, reuse=reuse):
-            print(x.get_shape())
+            #print(x.get_shape())
 
             conv0 = tf.layers.conv2d(x, 128, [4, 4], strides=(2,2), padding='same')
             a0 = lrelu(conv0, alpha = self.lrelu_alpha)
-            print(a0.get_shape())
+            #print(a0.get_shape())
 
             conv1 = tf.layers.conv2d(a0, 256, [4, 4], strides=(2,2), padding='same')
             a1 = lrelu(tf.layers.batch_normalization(conv1, training=self.isTrain), self.lrelu_alpha)
-            print(a1.get_shape())
+            #print(a1.get_shape())
 
             conv2 = tf.layers.conv2d(a1, 512, [4, 4], strides=(2,2), padding='same')
             a2 = lrelu(tf.layers.batch_normalization(conv2, training=self.isTrain), self.lrelu_alpha)
-            print(a2.get_shape())
+            #print(a2.get_shape())
 
             conv3 = tf.layers.conv2d(a2, 1, [4, 4], strides=(2,2), padding='valid')
             a3 = tf.nn.sigmoid(conv3)
-            print(a3.get_shape())
+            #print(a3.get_shape())
 
             return a3, conv3
 
@@ -128,7 +128,7 @@ class AnoGan(object):
         N = len(images) // batch_size # Number of iterations per epoch
         im = list()
         try:
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir+'sadsad')) # Restore if checkpoint exists.
+            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir)) # Restore if checkpoint exists.
         except:
             self.sess.run(tf.global_variables_initializer()) # Otherwise initialize.
         print('Starting GAN training ...')
@@ -171,7 +171,7 @@ sess = tf.Session()
 net = AnoGan(sess)
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
 
-im = net.train_model(mnist.train.images, epochs=25, batch_size=64, learning_rate=1e-3)
+im = net.train_model(((mnist.train.images)-0.5)/0.5, epochs=25, batch_size=64, learning_rate=1e-4)
 rows, cols = 5, 5
 fig, axes = plt.subplots(figsize=(12,12), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
 k = 0
