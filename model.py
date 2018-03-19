@@ -22,77 +22,133 @@ class AnoGan(object):
         self.lrelu_alpha = lrelu_alpha
         self.build_model()
 
+    def Conv2d(self, input, output_dim=64, kernel=(5, 5), strides=(2, 2), stddev=0.2, name='conv_2d'):
+
+        with tf.variable_scope(name):
+            W = tf.get_variable('Conv2dW', [kernel[0], kernel[1], input.get_shape()[-1], output_dim],
+                                initializer=tf.truncated_normal_initializer(stddev=stddev))
+            b = tf.get_variable('Conv2db', [output_dim], initializer=tf.zeros_initializer())
+
+            return tf.nn.conv2d(input, W, strides=[1, strides[0], strides[1], 1], padding='SAME') + b
+
+    def Deconv2d(self, input, output_dim, kernel=(5, 5), strides=(2, 2), stddev=0.2, name='deconv_2d'):
+
+        with tf.variable_scope(name):
+            W = tf.get_variable('Deconv2dW', [kernel[0], kernel[1], output_dim, input.get_shape()[-1]],
+                                initializer=tf.truncated_normal_initializer(stddev=stddev))
+            b = tf.get_variable('Deconv2db', [output_dim], initializer=tf.zeros_initializer())
+            batch_size = tf.shape(input)[0]
+            input_shape = input.get_shape().as_list()
+            output_shape = tf.stack([batch_size,
+                            int(input_shape[1] * strides[0]),
+                            int(input_shape[2] * strides[1]),
+                            output_dim])
+
+            deconv = tf.nn.conv2d_transpose(input, W, output_shape=output_shape,
+                                            strides=[1, strides[0], strides[1], 1])
+
+            return deconv + b
+
+    def Dense(self, input, output_dim, stddev=0.02, name='dense'):
+
+        with tf.variable_scope(name):
+            shape = input.get_shape()
+            W = tf.get_variable('DenseW', [shape[1], output_dim], tf.float32,
+                                tf.random_normal_initializer(stddev=stddev))
+            b = tf.get_variable('Denseb', [output_dim],
+                                initializer=tf.zeros_initializer())
+
+            return tf.matmul(input, W) + b
+
+    def BatchNormalization(self, input, name='bn'):
+
+        with tf.variable_scope(name):
+
+            output_dim = input.get_shape()[-1]
+            beta = tf.get_variable('BnBeta', [output_dim],
+                                   initializer=tf.zeros_initializer())
+            gamma = tf.get_variable('BnGamma', [output_dim],
+                                    initializer=tf.ones_initializer())
+
+            if len(input.get_shape()) == 2:
+                mean, var = tf.nn.moments(input, [0])
+            else:
+                mean, var = tf.nn.moments(input, [0, 1, 2])
+            return tf.nn.batch_normalization(input, mean, var, beta, gamma, 1e-5)
+
+    def LeakyReLU(self, input, leak=0.2, name='lrelu'):
+        return tf.maximum(input, leak * input)
+
     def discrimimnator_mnist(self, x, reuse=False, name='Discriminator'):
 
-        def lrelu(x, alpha=0.2):
-            return tf.maximum(alpha * x, x)
-
         with tf.variable_scope(name, reuse=reuse):
-             """
-            print(x.get_shape())
-    
-            conv0 = tf.layers.conv2d(x, 64, [5, 5], strides=(2,2), padding='same')
-            a0 = lrelu(conv0, alpha = self.lrelu_alpha)
-            print(a0.get_shape())
-    
-            conv1 = tf.layers.conv2d(a0, 128, [4, 4], strides=(2,2), padding='same')
-            a1 = lrelu(tf.layers.batch_normalization(conv1, training=self.isTrain), self.lrelu_alpha)
-            print(a1.get_shape())
-    
-            conv2 = tf.layers.conv2d(a1, 1, [4, 4], strides=(2,2), padding='same')
-            a2 = lrelu(tf.layers.batch_normalization(conv2, training=self.isTrain), self.lrelu_alpha)
-            print(a2.get_shape())
-    
-            conv3 = tf.layers.dense(tf.layers.flatten(a2), 1)
-            a3 = tf.nn.sigmoid(conv3)
-            print(a3.get_shape())
             """
-             x = tf.layers.conv2d(x, 64, [5,5], strides=(2,2), padding='same')
-             x = lrelu(x)
-             x = tf.layers.conv2d(x, 128, [5, 5], strides=(2, 2), padding='same')
-             x = lrelu(x)
-             x = tf.contrib.layers.flatten(x)
-             x = tf.layers.dense(x, units=1)
-             y = tf.nn.sigmoid(x)
-             return y, x
+            x = tf.layers.conv2d(x, 64, [5, 5], strides=(2,2), padding='same')
+            x = lrelu(x, alpha = self.lrelu_alpha)
+            #print(x.get_shape())
+
+            x = tf.layers.conv2d(x, 128, [4, 4], strides=(2,2), padding='same')
+            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), self.lrelu_alpha)
+            #print(x.get_shape())
+
+            x = tf.layers.conv2d(x, 1, [4, 4], strides=(2,2), padding='same')
+            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), self.lrelu_alpha)
+            #print(x.get_shape())
+
+            x = tf.layers.flatten(x)
+            #print(x.get_shape())
+
+            x = tf.layers.dense(x, 1)
+            y = tf.nn.sigmoid(x)
+            #print(x.get_shape())
+            return y, x
+            """
+            D_conv1 = self.Conv2d(x, output_dim=64, name='D_conv1')
+            D_h1 = self.LeakyReLU(D_conv1)  # [-1, 28, 28, 64]
+            D_conv2 = self.Conv2d(D_h1, output_dim=128, name='D_conv2')
+            D_h2 = self.LeakyReLU(D_conv2)  # [-1, 28, 28, 128]
+            D_r2 = tf.reshape(D_h2, [-1, 256])
+            D_h3 = self.LeakyReLU(D_r2)  # [-1, 256]
+            D_h4 = tf.nn.dropout(D_h3, 0.5)
+            D_h5 = self.Dense(D_h4, output_dim=1, name='D_h5')  # [-1, 1]
+            return tf.nn.sigmoid(D_h5), D_h5
 
     def generator_mnist(self, z, reuse=False, name='Generator'):
-        def lrelu(x, alpha=0.2):
-            return tf.maximum(alpha * x, x)
 
         with tf.variable_scope(name, reuse=reuse):
-            # 1st hidden layer
             """
-            dense0 = tf.layers.dense(z, 128*7*7)
-            batch0 = lrelu(tf.layers.batch_normalization(dense0, training=self.isTrain))
-            print(batch0.get_shape())
-            x = tf.reshape(batch0, [-1, 7, 7, 128])
-            print(x.get_shape())
+            x = tf.layers.dense(z, 128*7*7)
+            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain))
+            #print(x.get_shape())
 
-            conv0 = tf.layers.conv2d_transpose(x, 64, [4, 4], strides=(1, 1), padding='same')
-            a0 = lrelu(tf.layers.batch_normalization(conv0, training=self.isTrain), 0.2)
-            print(a0.get_shape())
+            x = tf.reshape(x, [-1, 7, 7, 128])
+            #print(x.get_shape())
 
-            conv1 = tf.layers.conv2d_transpose(a0, 32, [4, 4], strides=(1, 1), padding='same')
-            a1 = lrelu(tf.layers.batch_normalization(conv1, training=self.isTrain), 0.2)
-            print(a1.get_shape())
+            x = tf.layers.conv2d_transpose(x, 124, [4, 4], strides=(1, 1), padding='same')
+            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), 0.2)
+            #print(x.get_shape())
 
-            conv2 = tf.layers.conv2d_transpose(a1, 32, [3, 3], strides=(2, 2), padding='same')
-            a2 = lrelu(tf.layers.batch_normalization(conv2, training=self.isTrain), 0.2)
-            print(a2.get_shape())
+            x = tf.layers.conv2d_transpose(x, 56, [3, 3], strides=(2, 2), padding='same')
+            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), 0.2)
+            #print(x.get_shape())
 
-            conv3 = tf.layers.conv2d_transpose(a2, 1, [4, 4], strides=(2, 2), padding='same')
-            a3 = tf.nn.tanh(conv3)
-            print(a3.get_shape())
-            """
-            x = tf.layers.dense(z, units=7 * 7 * 128)
-            x = tf.nn.relu(x)
-            x = tf.reshape(x, shape=[-1, 7, 7, 128])
-            x = tf.layers.conv2d_transpose(x, 64, [2,2], strides=(2,2), padding='same')
-            x = tf.nn.relu(x)
-            x = tf.layers.conv2d_transpose(x, 1, [2,2], strides=(2,2), padding='same')
+            x = tf.layers.conv2d_transpose(x, 1, [4, 4], strides=(2, 2), padding='same')
             x = tf.nn.tanh(x)
+            #print(x.get_shape())
             return x
+            """
+            G_1 =self. Dense(z, output_dim=1024, name='G_1')  # [-1, 1024]
+            G_bn1 = self.BatchNormalization(G_1, name='G_bn1')
+            G_h1 = tf.nn.relu(G_bn1)
+            G_2 = self.Dense(G_h1, output_dim=7 * 7 * 128, name='G_2')  # [-1, 7*7*128]
+            G_bn2 = self.BatchNormalization(G_2, name='G_bn2')
+            G_h2 = tf.nn.relu(G_bn2)
+            G_r2 = tf.reshape(G_h2, [-1, 7, 7, 128])
+            G_conv3 = self.Deconv2d(G_r2, output_dim=64, name='G_conv3')
+            G_bn3 = self.BatchNormalization(G_conv3, name='G_bn3')
+            G_h3 = tf.nn.relu(G_bn3)
+            G_conv4 = self.Deconv2d(G_h3, output_dim=1, name='G_conv4')
+            return tf.nn.sigmoid(G_conv4)
 
     def build_model(self):
         with tf.variable_scope('Placeholders'):
@@ -128,9 +184,9 @@ class AnoGan(object):
         self.g_vars = [var for var in vars if var.name.startswith('Generator')]
 
         with tf.variable_scope('Optimizers'):
-            self.d_opt = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.5).minimize(
+            self.d_opt = tf.train.AdamOptimizer(learning_rate=self.learning_rate/2, beta1=0.1).minimize(
                 self.d_loss, var_list=self.d_vars)
-            self.g_opt = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.5).minimize(
+            self.g_opt = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.3).minimize(
                 self.g_loss, var_list=self.g_vars)
 
         self.saver = tf.train.Saver()
@@ -140,7 +196,8 @@ class AnoGan(object):
         N = len(images) // batch_size # Number of iterations per epoch
         im = list()
         try:
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir)) # Restore if checkpoint exists.
+            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir
+                                                                     )) # Restore if checkpoint exists.
         except:
             self.sess.run(tf.global_variables_initializer()) # Otherwise initialize.
         print('Starting GAN training ...')
@@ -156,7 +213,7 @@ class AnoGan(object):
                 if batch_end <= len(images):
                     batch = images[batch_start:batch_end, :, :, :]
                     batch_z = np.random.uniform(-1, 1, size=(batch_size, self.z_dim))
-                    _, g_loss_, grads = sess.run([self.g_opt, self.g_loss, self.grads], feed_dict={self.z: batch_z, self.isTrain: True,
+                    _, g_loss_, grads = self.sess.run([self.g_opt, self.g_loss, self.grads], feed_dict={self.z: batch_z, self.isTrain: True,
                                                                                self.learning_rate: learning_rate})
                     _, d_loss_ = self.sess.run([self.d_opt, self.d_loss],
                                                feed_dict={self.inputs: batch, self.z: batch_z, self.isTrain: True,
@@ -169,30 +226,100 @@ class AnoGan(object):
             if verbose:
                 print(f'Average generator loss {g_loss/N}')
                 print(f'Average discriminator loss {d_loss/N}')
-            G = self.sess.run([self.G], feed_dict={self.z: np.random.uniform(-1, 1, size=(1, self.z_dim)), self.isTrain: False})
+            G = self.sess.run([self.G], feed_dict={self.z: np.random.uniform(-1, 1, size=(4, self.z_dim)), self.isTrain: False})
             im.append(G)
         self.saver.save(self.sess, save_path=self.save_dir + 'AnoGan.ckpt') # Save parameters.
         return im
 
+    def _init_anomaly(self):
+        learning_rate = 0.001
+        beta1 = 0.7
+        self.w = tf.Variable(initial_value=tf.random_uniform(minval=-1, maxval=1, shape=[24, self.z_dim]), name='qnoise')
+        self.samples = self.generator_mnist(self.w, reuse=True)
+        self.query = tf.placeholder(shape=[1,28,28,1], dtype=tf.float32)
+        _, real = self.discrimimnator_mnist(self.query, reuse=True)
+        _, fake = self.discrimimnator_mnist(self.samples, reuse=True)
 
+        resloss = tf.reduce_mean(tf.abs(self.samples-self.query))
+        discloss = tf.reduce_mean(tf.abs(real-fake))
+        self.loss = 0.9*resloss + 0.1*discloss
+        self.optim = tf.train.AdamOptimizer(learning_rate, beta1=beta1).minimize(self.loss, var_list=[self.w])
 
+    def anomaly(self, query_image):
+        try:
+            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir)) # Restore if checkpoint exists.
+        except:
+            raise Exception(f'Train the model before doing anomaly detection, cant find checkpoint in {self.save_dir}')
 
+        self.sess.run(self.w.initializer)
+        adam_init = [var.initializer for var in tf.global_variables() if 'qnoise/Adam' in var.name]
+        self.sess.run(adam_init)
+        beta_init = [var.initializer for var in tf.global_variables() if 'beta1_power' in var.name]
+        self.sess.run(beta_init)
+        beta_init = [var.initializer for var in tf.global_variables() if 'beta2_power' in var.name]
+        self.sess.run(beta_init)
+        for r in range(5000):
+            _, current_loss, noise, current_sample = self.sess.run([self.optim, self.loss, self.w, self.samples], feed_dict={self.query: query_image, self.isTrain: False})
+
+        return current_sample, current_loss
+
+"""
 tf.reset_default_graph()
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
 sess = tf.Session()
 net = AnoGan(sess)
-print(np.max(mnist.train.images[1,:,:,0]))
-im = net.train_model(((mnist.train.images[1:400,:,:,:]-0.5)/0.5), epochs=100, batch_size=64, learning_rate=0.001)
-rows, cols = 5, 5
-fig, axes = plt.subplots(figsize=(8,8), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
+
+#im = net.train_model(((mnist.train.images-0.5)/0.5), epochs=100, batch_size=64, learning_rate=0.0002)
+
+
+rows, cols = 10, 10
+fig, axes = plt.subplots(figsize=(12,10), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
 k = 0
-print(np.shape(im[2]))
+print(np.shape(im))
 for ax_row in axes:
     for ax in ax_row:
-        img = im[k+74]
-        img = img[0][0][:,:,:]
+
+        img = im[k]
+        img = img[0][np.random.randint(0,4)][:,:,:]
         k = k+1
         ax.imshow(np.squeeze(img), cmap='Greys_r')
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
 plt.show()
+
+query_img = (mnist.test.images[np.random.randint(0,9000),:,:,:]-0.5)/0.5
+query_img = query_img[np.newaxis,:,:,:]
+fig, axes = plt.subplots(figsize=(12,10), nrows=1, ncols=2, sharex=True, sharey=True, squeeze=False)
+img, loss = net.anomaly(query_img)
+print(np.shape(img[0,:,:,0]))
+axes[0,0].imshow(query_img[0,:,:,0], cmap='Greys_r')
+axes[0,0].set_title('Input image')
+axes[0,1].imshow(img[0,:,:,0], cmap='Greys_r')
+axes[0,1].set_title('Reconstructed image')
+plt.suptitle(f'loss: {loss}')
+plt.show()
+
+
+rows, cols = 5, 5
+fig, axes = plt.subplots(figsize=(12,10), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
+k = 0
+query_img = (mnist.test.images[np.random.randint(0,9000),:,:,:]-0.5)/0.5
+query_img = query_img[np.newaxis,:,:,:]
+im, loss = net.anomaly(query_img)
+print(np.shape(im))
+for ax_row in axes:
+    for ax in ax_row:
+        if k == 24:
+            ax.imshow(np.squeeze(query_img), cmap='Greys_r')
+            ax.xaxis.set_visible(False)
+            ax.yaxis.set_visible(False)
+            ax.set_title('Query image')
+
+        else:
+            img = im[k]
+            k = k+1
+            ax.imshow(np.squeeze(img), cmap='Greys_r')
+            ax.xaxis.set_visible(False)
+            ax.yaxis.set_visible(False)
+plt.show()
+"""
