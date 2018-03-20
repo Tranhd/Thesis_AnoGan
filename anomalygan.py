@@ -419,7 +419,7 @@ class AnoGan(object):
             _, losses, noise, current_sample = self.sess.run([self.optim, self.loss, self.w, self.samples],
                                                               feed_dict={self.query: query_image})
 
-        w_loss, w, samples = self.sess.run([self.loss_w, self.w, self.samples],
+        w_loss, losses, samples = self.sess.run([self.loss_w, self.loss, self.samples],
                                         feed_dict={self.query: query_image})
         best_index = np.argmin(w_loss)
         return samples, losses, best_index, w_loss
