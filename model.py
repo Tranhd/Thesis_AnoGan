@@ -1,7 +1,5 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow.examples.tutorials.mnist import input_data
-import matplotlib.pyplot as plt
 
 
 # The Deep Convolutional GAN class, for mnist.
