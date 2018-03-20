@@ -3,17 +3,17 @@ An reconstruction based anomaly detection algorithm using DCGANs.
 
 ## User Guide 
 
-#### Create a CNNMnist instance
+#### Create a AnoGan instance
 The model is initiated with an Tensorflow session and a directory where to save the parameters after training (optional). After this stage the graph is assembled and are ready to be trained.
 ```python
 tf.reset_default_graph()
 sess = tf.Session()
-net = MnistCNN(sess, save_dir='./MnistCNN_save/')
+net = AnoGan(sess, save_dir='./MnistCNN_save/')
 ```
 #### Train the model
-The model is trained using the 'train_model' function. The function expect training data: 'x_train' with the shape [n_examples, 28, 28, 1] and one-hot encoded labels with the shape [n_examples, 10]. The same goes for the validation data. In addition optional parameters includes 'batch_size', 'epochs', 'learning_rate' and 'verbose'.
+The model is trained using the 'train_model' function. The function expect training data: 'x_train' with the shape [n_examples, 28, 28, 1]. In addition optional parameters includes 'batch_size', 'epochs', 'learning_rate' and 'verbose'.
 ```python
-net.train_model(x_train, y_train, x_val, y_val, epochs=50, learning_rate=1e-2, verbose=1)
+net.train_model(x_train, epochs=100, learning_rate=2e-4, verbose=1)
 ```
 
 #### Inference
