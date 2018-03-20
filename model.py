@@ -21,6 +21,10 @@ class AnoGan(object):
         self.dataset = dataset
         self.lrelu_alpha = lrelu_alpha
         self.build_model()
+        try:
+            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir))
+        except:
+            pass
 
     def Conv2d(self, input, output_dim=64, kernel=(5, 5), strides=(2, 2), stddev=0.2, name='conv_2d'):
 
@@ -82,61 +86,22 @@ class AnoGan(object):
     def discrimimnator_mnist(self, x, reuse=False, name='Discriminator'):
 
         with tf.variable_scope(name, reuse=reuse):
-            """
-            x = tf.layers.conv2d(x, 64, [5, 5], strides=(2,2), padding='same')
-            x = lrelu(x, alpha = self.lrelu_alpha)
-            #print(x.get_shape())
 
-            x = tf.layers.conv2d(x, 128, [4, 4], strides=(2,2), padding='same')
-            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), self.lrelu_alpha)
-            #print(x.get_shape())
-
-            x = tf.layers.conv2d(x, 1, [4, 4], strides=(2,2), padding='same')
-            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), self.lrelu_alpha)
-            #print(x.get_shape())
-
-            x = tf.layers.flatten(x)
-            #print(x.get_shape())
-
-            x = tf.layers.dense(x, 1)
-            y = tf.nn.sigmoid(x)
-            #print(x.get_shape())
-            return y, x
-            """
             D_conv1 = self.Conv2d(x, output_dim=64, name='D_conv1')
             D_h1 = self.LeakyReLU(D_conv1)  # [-1, 28, 28, 64]
             D_conv2 = self.Conv2d(D_h1, output_dim=128, name='D_conv2')
             D_h2 = self.LeakyReLU(D_conv2)  # [-1, 28, 28, 128]
-            D_r2 = tf.reshape(D_h2, [-1, 256])
+            D_r2 = tf.contrib.layers.flatten(D_h2)
             D_h3 = self.LeakyReLU(D_r2)  # [-1, 256]
             D_h4 = tf.nn.dropout(D_h3, 0.5)
             D_h5 = self.Dense(D_h4, output_dim=1, name='D_h5')  # [-1, 1]
             return tf.nn.sigmoid(D_h5), D_h5
 
+
     def generator_mnist(self, z, reuse=False, name='Generator'):
 
         with tf.variable_scope(name, reuse=reuse):
-            """
-            x = tf.layers.dense(z, 128*7*7)
-            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain))
-            #print(x.get_shape())
 
-            x = tf.reshape(x, [-1, 7, 7, 128])
-            #print(x.get_shape())
-
-            x = tf.layers.conv2d_transpose(x, 124, [4, 4], strides=(1, 1), padding='same')
-            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), 0.2)
-            #print(x.get_shape())
-
-            x = tf.layers.conv2d_transpose(x, 56, [3, 3], strides=(2, 2), padding='same')
-            x = lrelu(tf.layers.batch_normalization(x, training=self.isTrain), 0.2)
-            #print(x.get_shape())
-
-            x = tf.layers.conv2d_transpose(x, 1, [4, 4], strides=(2, 2), padding='same')
-            x = tf.nn.tanh(x)
-            #print(x.get_shape())
-            return x
-            """
             G_1 =self. Dense(z, output_dim=1024, name='G_1')  # [-1, 1024]
             G_bn1 = self.BatchNormalization(G_1, name='G_bn1')
             G_h1 = tf.nn.relu(G_bn1)
@@ -150,12 +115,13 @@ class AnoGan(object):
             G_conv4 = self.Deconv2d(G_h3, output_dim=1, name='G_conv4')
             return tf.nn.sigmoid(G_conv4)
 
+
+
     def build_model(self):
         with tf.variable_scope('Placeholders'):
             self.inputs = tf.placeholder(
                 tf.float32, [None, self.input_width, self.input_height, self.channels])
             self.z = tf.placeholder(tf.float32, [None, self.z_dim])
-            self.isTrain = tf.placeholder(tf.bool)
             self.learning_rate = tf.placeholder(tf.float32)
 
         if self.dataset == 'mnist':
@@ -213,10 +179,10 @@ class AnoGan(object):
                 if batch_end <= len(images):
                     batch = images[batch_start:batch_end, :, :, :]
                     batch_z = np.random.uniform(-1, 1, size=(batch_size, self.z_dim))
-                    _, g_loss_, grads = self.sess.run([self.g_opt, self.g_loss, self.grads], feed_dict={self.z: batch_z, self.isTrain: True,
+                    _, g_loss_, grads = self.sess.run([self.g_opt, self.g_loss, self.grads], feed_dict={self.z: batch_z,
                                                                                self.learning_rate: learning_rate})
                     _, d_loss_ = self.sess.run([self.d_opt, self.d_loss],
-                                               feed_dict={self.inputs: batch, self.z: batch_z, self.isTrain: True,
+                                               feed_dict={self.inputs: batch, self.z: batch_z,
                                                           self.learning_rate: learning_rate})
                     d_loss = d_loss + d_loss_
                     g_loss = g_loss + g_loss_
@@ -226,42 +192,64 @@ class AnoGan(object):
             if verbose:
                 print(f'Average generator loss {g_loss/N}')
                 print(f'Average discriminator loss {d_loss/N}')
-            G = self.sess.run([self.G], feed_dict={self.z: np.random.uniform(-1, 1, size=(4, self.z_dim)), self.isTrain: False})
+            G = self.sess.run([self.G], feed_dict={self.z: np.random.uniform(-1, 1, size=(4, self.z_dim))})
             im.append(G)
         self.saver.save(self.sess, save_path=self.save_dir + 'AnoGan.ckpt') # Save parameters.
         return im
 
-    def _init_anomaly(self):
-        learning_rate = 0.001
+    def sampler(self, z):
+        with tf.variable_scope('Generator', reuse=True):
+            G_1 =self. Dense(z, output_dim=1024, name='G_1')  # [-1, 1024]
+            G_bn1 = self.BatchNormalization(G_1, name='G_bn1')
+            G_h1 = tf.nn.relu(G_bn1)
+            G_2 = self.Dense(G_h1, output_dim=7 * 7 * 128, name='G_2')  # [-1, 7*7*128]
+            G_bn2 = self.BatchNormalization(G_2, name='G_bn2')
+            G_h2 = tf.nn.relu(G_bn2)
+            G_r2 = tf.reshape(G_h2, [-1, 7, 7, 128])
+            G_conv3 = self.Deconv2d(G_r2, output_dim=64, name='G_conv3')
+            G_bn3 = self.BatchNormalization(G_conv3, name='G_bn3')
+            G_h3 = tf.nn.relu(G_bn3)
+            G_conv4 = self.Deconv2d(G_h3, output_dim=1, name='G_conv4')
+            return tf.nn.sigmoid(G_conv4)
+
+    def init_anomaly(self):
+        learning_rate = 0.0007
         beta1 = 0.7
-        self.w = tf.Variable(initial_value=tf.random_uniform(minval=-1, maxval=1, shape=[24, self.z_dim]), name='qnoise')
-        self.samples = self.generator_mnist(self.w, reuse=True)
-        self.query = tf.placeholder(shape=[1,28,28,1], dtype=tf.float32)
+        self.w = tf.Variable(initial_value=tf.random_uniform(minval=-1, maxval=1, shape=[49, self.z_dim]), name='qnoise')
+        self.samples = self.sampler(self.w)
+        self.query = tf.placeholder(shape=[1, 28, 28, 1], dtype=tf.float32)
         _, real = self.discrimimnator_mnist(self.query, reuse=True)
         _, fake = self.discrimimnator_mnist(self.samples, reuse=True)
 
-        resloss = tf.reduce_mean(tf.abs(self.samples-self.query))
-        discloss = tf.reduce_mean(tf.abs(real-fake))
-        self.loss = 0.9*resloss + 0.1*discloss
+        self.loss_w = 0.9 * tf.reduce_sum(tf.abs(self.samples - self.query), axis=[1, 2, 3]) + tf.reduce_sum(
+            0.1 * tf.abs(real - fake), axis=1)
+        resloss = tf.reduce_sum(tf.abs(self.samples - self.query))
+        discloss = tf.reduce_sum(tf.abs(real - fake))
+        self.loss = 0.9 * resloss + 0.1 * discloss
         self.optim = tf.train.AdamOptimizer(learning_rate, beta1=beta1).minimize(self.loss, var_list=[self.w])
 
     def anomaly(self, query_image):
-        try:
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir)) # Restore if checkpoint exists.
-        except:
-            raise Exception(f'Train the model before doing anomaly detection, cant find checkpoint in {self.save_dir}')
 
-        self.sess.run(self.w.initializer)
-        adam_init = [var.initializer for var in tf.global_variables() if 'qnoise/Adam' in var.name]
-        self.sess.run(adam_init)
-        beta_init = [var.initializer for var in tf.global_variables() if 'beta1_power' in var.name]
-        self.sess.run(beta_init)
-        beta_init = [var.initializer for var in tf.global_variables() if 'beta2_power' in var.name]
-        self.sess.run(beta_init)
-        for r in range(5000):
-            _, current_loss, noise, current_sample = self.sess.run([self.optim, self.loss, self.w, self.samples], feed_dict={self.query: query_image, self.isTrain: False})
+            self.sess.run(self.w.initializer)
+            adam_init = [var.initializer for var in tf.global_variables() if 'qnoise/Adam' in var.name]
+            self.sess.run(adam_init)
+            beta_init = [var.initializer for var in tf.global_variables() if 'beta1_power' in var.name]
+            self.sess.run(beta_init)
+            beta_init = [var.initializer for var in tf.global_variables() if 'beta2_power' in var.name]
+            self.sess.run(beta_init)
+            current_sample, current_loss, best_index, w_loss = self.anomaly_score(query_image)
 
-        return current_sample, current_loss
+            return current_sample, current_loss, best_index, w_loss
+
+    def anomaly_score(self, query_image):
+        for r in range(2000):
+            _, current_loss, noise, current_sample = self.sess.run([self.optim, self.loss, self.w, self.samples],
+                                                              feed_dict={self.query: query_image})
+
+        w_loss, w, sample = self.sess.run([self.loss_w, self.w, self.samples],
+                                        feed_dict={self.query: query_image})
+        best_index = np.argmin(w_loss)
+        return sample, current_loss, best_index, w_loss
 
 """
 tf.reset_default_graph()
