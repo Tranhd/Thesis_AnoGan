@@ -8,26 +8,28 @@ The model is initiated with an Tensorflow session and a directory where to save 
 ```python
 tf.reset_default_graph()
 sess = tf.Session()
-net = AnoGan(sess, save_dir='./MnistCNN_save/')
+anogan = AnoGan(sess, save_dir='./AnoGan_save/')
 ```
 #### Train the model
-The model is trained using the 'train_model' function. The function expect training data: 'x_train' with the shape [n_examples, 28, 28, 1]. In addition optional parameters includes 'batch_size', 'epochs', 'learning_rate' and 'verbose'.
+The model is trained using the 'train_model' function. The function expect training data: 'x_train'. In addition optional parameters includes 'batch_size', 'epochs', 'learning_rate' and 'verbose'.
 ```python
-net.train_model(x_train, epochs=100, learning_rate=2e-4, verbose=1)
+anogan.train_model(x_train, epochs=100, learning_rate=2e-4, verbose=1)
 ```
 
 #### Inference
-When the model is trained, it is ready to perform inference on new data. Prediction is performed with the function 'predict'. The function expects new images with the same shape as x_train, i.e [n_examples, 28, 28, 1]. The function returns 
-* The prediction for each of the examples in 'predictions' [n_examples, 1],
-* The probability distribution over all classes for each of the examples in 'probs' [n_examples, 10], 
-* The activations from each of the layers in the networks as a list in 'activations', where the ith object is the activations for layer i for all examples [n_examples, dimension of activation map of layer i]. 
+When the model is trained, it is ready to perform anomaly detection on new data. First the anomaly detection graph need to be assembled using the function 'init_anomaly()'. Then an anomaly score can be obtained (the higher the more anomalous) using 'anomaly(query_img)'. The function returns
+* All the reconstructed images 'samples'
+* The sum of all latent vector reconstruction scores 'losses'
+* The index of the best reconstruction 'best_index'
+* The loss divided over the different reconstructions 'loss_w'
 
-When predicting the test data:
+When performing anomaly detection on new data:
 ```python
-predictions, probs, activations = net.predict(x_test)
+anogan.init_anomaly()
+samples, losses, best_index, loss_w = anogan.anomaly(query_img)
 ```
- To calculate the accuracy of the predictions the following code-snippet can be used:
- ```python
-accuracy = np.sum(np.argmax(y_test, 1) == preds)
-print(f'Test accuracy {accuracy/100} %')
+The reconstruction with the lowest score/loss and its loss can then be accessed using  
+```python
+anomaly_score = loss_w[best_index]
+reconstruction = samples[best_index]
 ```
