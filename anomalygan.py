@@ -177,7 +177,7 @@ class AnoGan(object):
         Disrciminator network for Mnist
 
         :param x: tensor
-            Input to descriminator (image)
+            Input to discriminator (image)
         :param reuse: Bool
             Reuse parameters
         :param name: String
@@ -191,13 +191,12 @@ class AnoGan(object):
         with tf.variable_scope(name, reuse=reuse):
 
             D_conv1 = self.convolution2d(x, output_dim=64, name='D_conv1')
-            D_h1 = self.leakyReLU(D_conv1)  # [-1, 28, 28, 64]
+            D_h1 = self.leakyReLU(D_conv1)
             D_conv2 = self.convolution2d(D_h1, output_dim=128, name='D_conv2')
-            D_h2 = self.leakyReLU(D_conv2)  # [-1, 28, 28, 128]
-            D_r2 = tf.contrib.layers.flatten(D_h2)
-            D_h3 = self.leakyReLU(D_r2)  # [-1, 256]
+            D_h2 = self.leakyReLU(D_conv2)
+            D_h3 = tf.contrib.layers.flatten(D_h2)
             D_h4 = tf.nn.dropout(D_h3, 0.5)
-            D_h5 = self.dense_layer(D_h4, output_dim=1, name='D_h5')  # [-1, 1]
+            D_h5 = self.dense_layer(D_h4, output_dim=1, name='D_h5')
             return tf.nn.sigmoid(D_h5), D_h5
 
 
@@ -217,10 +216,10 @@ class AnoGan(object):
 
         with tf.variable_scope(name, reuse=reuse):
 
-            G_1 =self. dense_layer(z, output_dim=1024, name='G_1')  # [-1, 1024]
+            G_1 =self. dense_layer(z, output_dim=1024, name='G_1')
             G_bn1 = self.batchnormalization(G_1, name='G_bn1')
             G_h1 = tf.nn.relu(G_bn1)
-            G_2 = self.dense_layer(G_h1, output_dim=7 * 7 * 128, name='G_2')  # [-1, 7*7*128]
+            G_2 = self.dense_layer(G_h1, output_dim=7 * 7 * 128, name='G_2')
             G_bn2 = self.batchnormalization(G_2, name='G_bn2')
             G_h2 = tf.nn.relu(G_bn2)
             G_r2 = tf.reshape(G_h2, [-1, 7, 7, 128])
@@ -424,6 +423,9 @@ class AnoGan(object):
         best_index = np.argmin(w_loss)
         return samples, losses, best_index, w_loss
 
+tf.reset_default_graph()
+sess = tf.Session()
+net = AnoGan(sess)
 """
 tf.reset_default_graph()
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
