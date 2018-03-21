@@ -363,16 +363,15 @@ class AnoGan(object):
         self.w = tf.Variable(initial_value=tf.random_uniform(minval=-1, maxval=1, shape=[49, self.z_dim]), name='qnoise')
         self.samples = self.sampler(self.w)
         self.query = tf.placeholder(shape=[1, 28, 28, 1], dtype=tf.float32)
-        # TODO chage discrimintor loss to match AnoGAn
-        #_, real = self.discrimimnator_mnist(self.query, reuse=True)
+        _, real = self.discrimimnator_mnist(self.query, reuse=True)
         _, fake = self.discrimimnator_mnist(self.samples, reuse=True)
 
         # Loss
-        resloss = tf.reduce_sum(tf.abs(self.samples - self.query))
-        #discloss = tf.reduce_sum(tf.abs(real - fake))
-        discloss = tf.nn.sigmoid_cross_entropy_with_logits(logits=fake, labels=tf.ones_like(fake))
-        self.loss = 0.9 * resloss + 0.1 * tf.reduce_sum(discloss)
-        self.loss_w = 0.9 * tf.reduce_sum(tf.abs(self.samples - self.query), axis=[1, 2, 3]) + discloss
+        resloss = tf.reduce_mean(tf.abs(self.samples - self.query))
+        discloss = tf.reduce_mean(tf.abs(real - fake))
+        self.loss = 0.9 * resloss + 0.1 * discloss
+        self.loss_w = 0.9 * tf.reduce_mean(tf.abs(self.samples - self.query), axis=[1, 2, 3]) + \
+                      0.1 * tf.abs(real-fake)
 
         # Optimizer
         self.optim = tf.train.AdamOptimizer(learning_rate, beta1=beta1).minimize(self.loss, var_list=[self.w])
