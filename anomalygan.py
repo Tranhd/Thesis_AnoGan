@@ -1,5 +1,7 @@
 import tensorflow as tf
 import numpy as np
+from time import time
+
 
 
 # The Deep Convolutional GAN class, for mnist.
@@ -37,6 +39,7 @@ class AnoGan(object):
         try:
             # Restore weights if checkpoint exists
             self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir))
+            print('restored')
         except:
             pass
 
@@ -172,7 +175,7 @@ class AnoGan(object):
         """
         return tf.maximum(input, leak * input)
 
-    def discrimimnator_mnist(self, x, reuse=False, name='Discriminator'):
+    def discrimimnator_mnist(self, x, reuse=False, name='Discriminator', return_activation=False):
         """
         Disrciminator network for Mnist
 
@@ -189,7 +192,7 @@ class AnoGan(object):
         """
 
         with tf.variable_scope(name, reuse=reuse):
-
+            """
             D_conv1 = self.convolution2d(x, output_dim=64, name='D_conv1')
             D_h1 = self.leakyReLU(D_conv1)  # [-1, 28, 28, 64]
             D_conv2 = self.convolution2d(D_h1, output_dim=128, name='D_conv2')
@@ -197,9 +200,27 @@ class AnoGan(object):
             D_r2 = tf.contrib.layers.flatten(D_h2)
             D_h3 = self.leakyReLU(D_r2)  # [-1, 256]
             D_h4 = tf.nn.dropout(D_h3, 0.5)
-            D_h5 = self.dense_layer(D_h4, output_dim=1, name='D_h5')  # [-1, 1]
-            return tf.nn.sigmoid(D_h5), D_h5
+            D_h5 =self.dense_layer(D_h4, output_dim=100, name='D_h5')
+            D_r5 =self.leakyReLU(D_h5)
+            D_h6 = self.dense_layer(D_r5, output_dim=1, name='D_h6')  # [-1, 1]
+            if return_activation:
+                return tf.nn.sigmoid(D_h6), D_h6, D_r5
+            else:
+                return tf.nn.sigmoid(D_h6), D_h6
+            """
+            w1 = tf.get_variable('d_conv1w', [5,5,1,64], initializer=tf.truncated_normal_initializer(stddev=0.2))
+            b1 = tf.get_variable('d_conv1b', [64], initializer=tf.zeros_initializer())
+            x = tf.nn.conv2d(x, w1, strides=[1,2,2,1], padding='SAME')+b1
+            x = tf.maximum(x, 0.2 * x)
 
+            w2 = tf.get_variable('d_conv2w', [5,5,64,128], initializer=tf.truncated_normal_initializer(stddev=0.2))
+            b2 = tf.get_variable('d_conv2b', [128], initializer=tf.zeros_initializer())
+            x = tf.nn.conv2d(x, w2, strides=[1,2,2,1], padding='SAME')+b2
+            x = tf.maximum(x, 0.2 * x)
+
+            x = tf.layers.flatten(x)
+            x = tf.layers.dense(x, units=1)
+            return tf.nn.sigmoid(x), x
 
     def generator_mnist(self, z, reuse=False, name='Generator'):
         """
@@ -216,8 +237,8 @@ class AnoGan(object):
         """
 
         with tf.variable_scope(name, reuse=reuse):
-
-            G_1 =self. dense_layer(z, output_dim=1024, name='G_1')  # [-1, 1024]
+            """
+            G_1 =self.dense_layer(z, output_dim=1024, name='G_1')  # [-1, 1024]
             G_bn1 = self.batchnormalization(G_1, name='G_bn1')
             G_h1 = tf.nn.relu(G_bn1)
             G_2 = self.dense_layer(G_h1, output_dim=7 * 7 * 128, name='G_2')  # [-1, 7*7*128]
@@ -229,6 +250,10 @@ class AnoGan(object):
             G_h3 = tf.nn.relu(G_bn3)
             G_conv4 = self.deconvolution2d(G_h3, output_dim=1, name='G_conv4')
             return tf.nn.sigmoid(G_conv4)
+            """
+            x = tf.layers.dense(z, units=28*28)
+            x = tf.reshape(x, [-1,28,28,1])
+            return tf.nn.sigmoid(x)
 
 
 
@@ -325,7 +350,7 @@ class AnoGan(object):
             if verbose:
                 print(f'Average generator loss {g_loss/N}')
                 print(f'Average discriminator loss {d_loss/N}')
-            G = self.sess.run([self.G], feed_dict={self.z: np.random.uniform(-1, 1, size=(4, self.z_dim))})
+            G = self.sess.run([self.G], feed_dict={self.z: np.random.uniform(-1, 1, size=(1, self.z_dim))})
             im.append(G)
         self.saver.save(self.sess, save_path=self.save_dir + 'AnoGan.ckpt') # Save parameters.
         return im
@@ -357,25 +382,38 @@ class AnoGan(object):
         """
         To initialize anomaly detection
         """
-        learning_rate = 0.0007 # Latent space learning rate.
+        learning_rate = 3.007 # Latent space learning rate.
         beta1 = 0.7
-
+        self.n_seed = 1
         # Create placeholders and variables.
-        self.w = tf.Variable(initial_value=tf.random_uniform(minval=-1, maxval=1, shape=[49, self.z_dim]), name='qnoise')
-        self.samples = self.sampler(self.w)
+        self.w = tf.Variable(initial_value=tf.random_uniform(minval=-1, maxval=1, shape=[self.n_seed, self.z_dim]), name='qnoise')
+
+        #self.w = tf.Variable('qnoise', [1, self.z_dim], tf.float32,
+        #                    tf.random_normal_initializer(stddev=0.01))
+        self.samples = self.generator_mnist(self.w, reuse=True)
+        #print(self.samples.get_shape())
         self.query = tf.placeholder(shape=[1, 28, 28, 1], dtype=tf.float32)
-        _, real = self.discrimimnator_mnist(self.query, reuse=True)
-        _, fake = self.discrimimnator_mnist(self.samples, reuse=True)
+        _, real = self.discrimimnator_mnist(self.query, reuse=True, return_activation=True)
+        _, fake = self.discrimimnator_mnist(self.samples, reuse=True, return_activation=True)
 
         # Loss
-        self.loss_w = 0.9 * tf.reduce_sum(tf.abs(self.samples - self.query), axis=[1, 2, 3]) + tf.reduce_sum(
-            0.1 * tf.abs(real - fake), axis=1)
-        resloss = tf.reduce_sum(tf.abs(self.samples - self.query))
-        discloss = tf.reduce_sum(tf.abs(real - fake))
-        self.loss = 0.9 * resloss + 0.1 * discloss
+        self.loss_w = 0.9 * tf.reduce_sum(tf.abs(self.samples - self.query), axis=[1, 2, 3]
+                                          )+0.1*tf.reduce_sum(tf.abs(real - fake), axis=1)
+        self.resloss = tf.reduce_mean(tf.abs(self.samples - self.query))
+        self.discloss = tf.reduce_mean(tf.abs(real - fake))
+        self.loss = 0.9 * self.resloss + 0.1 * self.discloss
+
+        #print(tf.abs(self.samples - self.query).get_shape())
+        #print(tf.abs(real - fake).get_shape())
 
         # Optimizer
-        self.optim = tf.train.AdamOptimizer(learning_rate, beta1=beta1).minimize(self.loss, var_list=[self.w])
+        self.optim =tf.train.AdamOptimizer(learning_rate, beta1=beta1).minimize(self.resloss, var_list=self.w)
+        adam_init = [var.initializer for var in tf.global_variables() if 'qnoise/Adam' in var.name]
+        self.sess.run(adam_init)
+        beta_init = [var.initializer for var in tf.global_variables() if 'beta1_power' in var.name]
+        self.sess.run(beta_init)
+        beta_init = [var.initializer for var in tf.global_variables() if 'beta2_power' in var.name]
+        self.sess.run(beta_init)
 
     def anomaly(self, query_image):
         """
@@ -392,15 +430,10 @@ class AnoGan(object):
             The losses for each of the generated images in samples.
         """
         self.sess.run(self.w.initializer)
-        adam_init = [var.initializer for var in tf.global_variables() if 'qnoise/Adam' in var.name]
-        self.sess.run(adam_init)
-        beta_init = [var.initializer for var in tf.global_variables() if 'beta1_power' in var.name]
-        self.sess.run(beta_init)
-        beta_init = [var.initializer for var in tf.global_variables() if 'beta2_power' in var.name]
-        self.sess.run(beta_init)
-        samples, losses, best_index, w_loss = self.anomaly_score(query_image)
 
-        return samples, losses, best_index, w_loss
+        samples, losses, best_index, w_loss, w = self.anomaly_score(query_image)
+
+        return samples, losses, best_index, w_loss, w
 
     def anomaly_score(self, query_image):
         """
@@ -415,14 +448,20 @@ class AnoGan(object):
         :return w_loss: numpy array
             The losses for each of the generated images in samples.
         """
-        for r in range(2000):
-            _, losses, noise, current_sample = self.sess.run([self.optim, self.loss, self.w, self.samples],
-                                                              feed_dict={self.query: query_image})
-
-        w_loss, losses, samples = self.sess.run([self.loss_w, self.loss, self.samples],
+        #print(self.w.eval(session=self.sess))
+        for r in range(200):
+            _, losses, noise, current_sample, loss_w = self.sess.run([self.optim, self.loss, self.w, self.samples, self.loss_w],
+                                                          feed_dict={self.query: query_image})
+            #print('DD')
+            #print(noise)
+        samples, w_loss, losses, w, discloss, resloss = self.sess.run([self.samples, self.loss_w, self.loss, self.w, self.discloss, self.resloss],
                                         feed_dict={self.query: query_image})
+        samples = self.sess.run(self.G, feed_dict={self.z: w})
         best_index = np.argmin(w_loss)
-        return samples, losses, best_index, w_loss
+        #print(w)
+        print(f'discloss {discloss}')
+        print(f'resloss {resloss}')
+        return samples, losses, best_index, w_loss, w
 
 """
 tf.reset_default_graph()
