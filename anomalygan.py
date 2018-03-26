@@ -1,5 +1,7 @@
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.examples.tutorials.mnist import input_data
 from time import time
 
 
@@ -175,7 +177,7 @@ class AnoGan(object):
         """
         return tf.maximum(input, leak * input)
 
-    def discrimimnator_mnist(self, x, reuse=False, name='Discriminator', return_activation=False):
+    def discrimimnator_mnist(self, x, reuse=False, name='Discriminator'):
         """
         Disrciminator network for Mnist
 
@@ -208,19 +210,32 @@ class AnoGan(object):
             else:
                 return tf.nn.sigmoid(D_h6), D_h6
             """
+            print(x.get_shape())
+
             w1 = tf.get_variable('d_conv1w', [5,5,1,64], initializer=tf.truncated_normal_initializer(stddev=0.2))
             b1 = tf.get_variable('d_conv1b', [64], initializer=tf.zeros_initializer())
             x = tf.nn.conv2d(x, w1, strides=[1,2,2,1], padding='SAME')+b1
             x = tf.maximum(x, 0.2 * x)
+            print(x.get_shape())
 
             w2 = tf.get_variable('d_conv2w', [5,5,64,128], initializer=tf.truncated_normal_initializer(stddev=0.2))
             b2 = tf.get_variable('d_conv2b', [128], initializer=tf.zeros_initializer())
             x = tf.nn.conv2d(x, w2, strides=[1,2,2,1], padding='SAME')+b2
             x = tf.maximum(x, 0.2 * x)
+            print(x.get_shape())
 
-            x = tf.layers.flatten(x)
-            x = tf.layers.dense(x, units=1)
+            x = tf.reshape(x, [-1, 128*28*28])
+            print(x.get_shape())
+            x = tf.layers.dense(x, units=100, kernel_initializer=tf.random_normal_initializer(stddev=0.02),
+                                bias_initializer=tf.zeros_initializer(), name='d_dense1')
+            x = tf.maximum(x, 0.2 * x)
+
+            x = tf.layers.dropout(x, rate=0.5)
+
+            x = tf.layers.dense(x, units=1, kernel_initializer=tf.random_normal_initializer(stddev=0.02),
+                                bias_initializer=tf.zeros_initializer(), name='d_dense2')
             return tf.nn.sigmoid(x), x
+
 
     def generator_mnist(self, z, reuse=False, name='Generator'):
         """
@@ -251,8 +266,30 @@ class AnoGan(object):
             G_conv4 = self.deconvolution2d(G_h3, output_dim=1, name='G_conv4')
             return tf.nn.sigmoid(G_conv4)
             """
-            x = tf.layers.dense(z, units=28*28)
-            x = tf.reshape(x, [-1,28,28,1])
+            x = tf.layers.dense(z, units=1, kernel_initializer=tf.random_normal_initializer(stddev=0.02),
+                                bias_initializer=tf.zeros_initializer(), name='g_dense1')
+            x = tf.layers.batch_normalization(x)
+            x = tf.nn.relu(x)
+
+            x = tf.layers.dense(x, units=7*7*128, kernel_initializer=tf.random_normal_initializer(stddev=0.02),
+                                bias_initializer=tf.zeros_initializer(), name='g_dense2')
+            #x = tf.layers.batch_normalization(x)
+            x = self.batchnormalization(x, name='b1')
+            x = tf.nn.relu(x)
+            x = tf.reshape(x, [-1,7,7,128])
+
+            w1 = tf.get_variable('g_conv1w', [5,5,64,128], initializer=tf.truncated_normal_initializer(stddev=0.2))
+            b1 = tf.get_variable('g_conv1b', [64], initializer=tf.zeros_initializer())
+            x = tf.nn.conv2d_transpose(x, w1, strides=[1,2,2,1],
+                                       output_shape=[tf.shape(x)[0], tf.shape(x)[1]*2, tf.shape(x)[2]*2, 64])+b1
+            x = self.batchnormalization(x, name='b2')
+            x = tf.nn.relu(x)
+
+            w2 = tf.get_variable('g_conv2w', [5,5,1,64], initializer=tf.truncated_normal_initializer(stddev=0.2))
+            b2 = tf.get_variable('g_conv2b', [1], initializer=tf.zeros_initializer())
+            x = tf.nn.conv2d_transpose(x, w2, strides=[1, 2, 2, 1],
+                                       output_shape=[tf.shape(x)[0], tf.shape(x)[1] * 2, tf.shape(x)[2] * 2, 1]) + b2
+
             return tf.nn.sigmoid(x)
 
 
@@ -294,10 +331,10 @@ class AnoGan(object):
         self.g_vars = [var for var in vars if var.name.startswith('Generator')]
 
         with tf.variable_scope('Optimizers'):
-            self.d_opt = tf.train.AdamOptimizer(learning_rate=self.learning_rate/2, beta1=0.1).minimize(
-                self.d_loss, var_list=self.d_vars)
             self.g_opt = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.3).minimize(
                 self.g_loss, var_list=self.g_vars)
+            self.d_opt = tf.train.AdamOptimizer(learning_rate=self.learning_rate/2, beta1=0.1).minimize(
+                self.d_loss, var_list=self.d_vars)
 
         self.saver = tf.train.Saver()
         self.grads = tf.gradients(self.g_loss, self.g_vars)
@@ -343,6 +380,8 @@ class AnoGan(object):
                     _, d_loss_ = self.sess.run([self.d_opt, self.d_loss],
                                                feed_dict={self.inputs: batch, self.z: batch_z,
                                                           self.learning_rate: learning_rate})
+                    _, g_loss_ = self.sess.run([self.g_opt, self.g_loss], feed_dict={self.z: batch_z,
+                                                                                     self.learning_rate: learning_rate})
                     d_loss = d_loss + d_loss_
                     g_loss = g_loss + g_loss_
                     batch_start = batch_end
@@ -393,8 +432,8 @@ class AnoGan(object):
         self.samples = self.generator_mnist(self.w, reuse=True)
         #print(self.samples.get_shape())
         self.query = tf.placeholder(shape=[1, 28, 28, 1], dtype=tf.float32)
-        _, real = self.discrimimnator_mnist(self.query, reuse=True, return_activation=True)
-        _, fake = self.discrimimnator_mnist(self.samples, reuse=True, return_activation=True)
+        _, real = self.discrimimnator_mnist(self.query, reuse=True)
+        _, fake = self.discrimimnator_mnist(self.samples, reuse=True)
 
         # Loss
         self.loss_w = 0.9 * tf.reduce_sum(tf.abs(self.samples - self.query), axis=[1, 2, 3]
@@ -463,24 +502,24 @@ class AnoGan(object):
         print(f'resloss {resloss}')
         return samples, losses, best_index, w_loss, w
 
-"""
+
 tf.reset_default_graph()
 mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
 sess = tf.Session()
 net = AnoGan(sess)
 
-#im = net.train_model(((mnist.train.images-0.5)/0.5), epochs=100, batch_size=64, learning_rate=0.0002)
+im = net.train_model(mnist.train.images[1:1000], epochs=10, batch_size=64)
 
 
-rows, cols = 10, 10
-fig, axes = plt.subplots(figsize=(12,10), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
+rows, cols = 2, 5
+fig, axes = plt.subplots(figsize=(10,4), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
 k = 0
 print(np.shape(im))
 for ax_row in axes:
     for ax in ax_row:
 
         img = im[k]
-        img = img[0][np.random.randint(0,4)][:,:,:]
+        img = img[0][0][:,:,:]
         k = k+1
         ax.imshow(np.squeeze(img), cmap='Greys_r')
         ax.xaxis.set_visible(False)
@@ -490,7 +529,8 @@ plt.show()
 query_img = (mnist.test.images[np.random.randint(0,9000),:,:,:]-0.5)/0.5
 query_img = query_img[np.newaxis,:,:,:]
 fig, axes = plt.subplots(figsize=(12,10), nrows=1, ncols=2, sharex=True, sharey=True, squeeze=False)
-img, loss = net.anomaly(query_img)
+net.init_anomaly()
+img, loss, best, _, _ = net.anomaly(query_img)
 print(np.shape(img[0,:,:,0]))
 axes[0,0].imshow(query_img[0,:,:,0], cmap='Greys_r')
 axes[0,0].set_title('Input image')
@@ -499,7 +539,7 @@ axes[0,1].set_title('Reconstructed image')
 plt.suptitle(f'loss: {loss}')
 plt.show()
 
-
+"""
 rows, cols = 5, 5
 fig, axes = plt.subplots(figsize=(12,10), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
 k = 0
