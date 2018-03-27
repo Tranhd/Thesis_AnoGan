@@ -37,11 +37,15 @@ def init_anomaly(sess, anogan):
     return optim, loss, w, samples, query, grads
 
 
-def anomaly(sess, query_image, optim, loss, w, query, grads, samples):
-    sess.run(w.initializer)
-
-    G, losses, noise = anomaly_score(sess, samples, query_image, query, optim, loss, w, grads)
-
+def anomaly(sess, query_image, optim, loss, w, query, grads, samples, seeds):
+    l = len(seeds)
+    G = np.zeros((l, 64, 64, 1))
+    losses = np.zeros((l,1))
+    noise = np.zeros((l, 1, 1, w.get_shape()[-1]))
+    for i, seed in enumerate(seeds):
+        tf.set_random_seed(seed)
+        sess.run(w.initializer)
+        G[i, :, :, 0], losses[i], noise[i, :] = anomaly_score(sess, samples, query_image, query, optim, loss, w, grads)
     return G, losses, noise
 
 
