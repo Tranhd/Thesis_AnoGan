@@ -8,12 +8,12 @@ The model is initiated with an Tensorflow session and a directory where to save 
 ```python
 tf.reset_default_graph()
 sess = tf.Session()
-anogan = AnoGan(sess, save_dir='./AnoGan_save/')
+net = AnomalyGAN(sess, save_dir='./AnoGan_save/')
 ```
 #### Train the model
 The model is trained using the 'train_model' function. The function expect training data: 'x_train'. In addition optional parameters includes 'batch_size', 'epochs', 'learning_rate' and 'verbose'.
 ```python
-anogan.train_model(x_train, epochs=100, learning_rate=2e-4, verbose=1)
+net.train_model(x_train, epochs=100, learning_rate=2e-4, verbose=1)
 ```
 
 #### Inference
@@ -25,11 +25,7 @@ When the model is trained, it is ready to perform anomaly detection on new data.
 
 When performing anomaly detection on new data:
 ```python
-anogan.init_anomaly()
-samples, losses, best_index, loss_w = anogan.anomaly(query_img)
+optim, loss, resloss, discloss, w, samples, query, grads = init_anomaly(sess, net)
+im, losses, r_loss, d_loss, noise = anomaly(sess, query_img, optim, loss, resloss, discloss, w, query)
 ```
-The reconstruction with the lowest score/loss and its loss can then be accessed using  
-```python
-anomaly_score = loss_w[best_index]
-reconstruction = samples[best_index]
-```
+Returns reconstructions and anomaly scores (losses) from 12 different initial latent vectors.
