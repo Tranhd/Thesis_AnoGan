@@ -8,8 +8,8 @@ import numpy as np
 
 
 def init_anomaly(sess, anomalygan):
-    learning_rate = 0.07  # Latent space learning rate.
-    beta1 = 0.7
+    learning_rate = 0.005  # Latent space learning rate.
+    beta1 = 0.5
     n_seed = 1
     # Create placeholders and variables.
     w = tf.Variable(initial_value=tf.random_normal([n_seed, 1, 1, anomalygan.z_dim], 0, 1),
@@ -18,8 +18,8 @@ def init_anomaly(sess, anomalygan):
     samples = anomalygan.sampler(w)
     # print(self.samples.get_shape())
     query = tf.placeholder(shape=[1, 64, 64, 1], dtype=tf.float32)
-    _, real = anomalygan.discrimimnator_mnist(query, reuse=True)
-    _, fake = anomalygan.discrimimnator_mnist(samples, reuse=True)
+    _,_, real = anomalygan.discrimimnator_mnist(query, reuse=True, return_pen=True)
+    _,_, fake = anomalygan.discrimimnator_mnist(samples, reuse=True, return_pen=True)
 
     resloss = tf.reduce_mean(tf.abs(samples - query))
     discloss = tf.reduce_mean(tf.abs(real - fake))
@@ -48,12 +48,12 @@ def anomaly(sess, query_image, optim, loss, resloss, discloss, w, query, grads, 
     for i, seed in enumerate(seeds):
         tf.set_random_seed(seed)
         sess.run(w.initializer)
-        G[i, :, :, :], losses[i], r_loss, d_loss, noise[i, :] = anomaly_score(sess, samples, query_image, query, optim, loss, resloss, discloss,w, grads)
+        G[i, :, :, :], losses[i], r_loss[i], d_loss[i], noise[i, :] = anomaly_score(sess, samples, query_image, query, optim, loss, resloss, discloss,w, grads)
     return G, losses, r_loss, d_loss, noise
 
 
 def anomaly_score(sess, sample, query_image, query, optim, loss, resloss, discloss, w, grads):
-    for r in range(100):
+    for r in range(1000):
         _, losses, r_loss, d_loss, noise, gradients, samples = sess.run(
             [optim, loss, resloss, discloss, w, grads, sample],
             feed_dict={query: query_image})

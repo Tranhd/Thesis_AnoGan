@@ -47,7 +47,7 @@ class AnomalyGAN(object):
     def lrelu(self, x, th=0.2):
         return tf.maximum(th * x, x)
 
-    def discrimimnator_mnist(self, x, reuse=False, isTrain=True, name='Discriminator'):
+    def discrimimnator_mnist(self, x, reuse=False, isTrain=True, return_pen=False, name='Discriminator'):
         """
         Disrciminator network for Mnist
 
@@ -83,7 +83,10 @@ class AnomalyGAN(object):
             # output layer
             conv5 = tf.layers.conv2d(lrelu4, 1, [4, 4], strides=(1, 1), padding='valid')
             o = tf.nn.sigmoid(conv5)
-        return o, conv5
+            if return_pen:
+                return o, conv5, lrelu4
+            else:
+                return o, conv5
 
 
     def generator_mnist(self, z, reuse=False, isTrain=True, name='Generator'):
@@ -211,7 +214,7 @@ class AnomalyGAN(object):
             z = np.random.normal(0, 1, size=(1, 1, 1, self.z_dim))
             G = self.sess.run([self.G_z], feed_dict={self.z: z, self.isTrain: False})
             im.append(G)
-            self.saver.save(self.sess, save_path=self.save_dir + 'AnomalyGAN.ckpt') # Save parameters.
+            #self.saver.save(self.sess, save_path=self.save_dir + 'AnomalyGAN.ckpt') # Save parameters.
         return im
 
     def sampler(self, z):
@@ -245,29 +248,28 @@ class AnomalyGAN(object):
             o = tf.nn.tanh(conv5)
             return o
 
-
-tf.reset_default_graph()
-mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
-sess = tf.Session()
-net = AnomalyGAN(sess)
-train_set = tf.image.resize_images(mnist.train.images, [64, 64]).eval(session=sess)
-train_set = (train_set - 0.5) / 0.5 # normalization; range: -1 ~ 1
-
-im = net.train_model(train_set, epochs=20, batch_size=100, learning_rate=2e-4)
-
-
-rows, cols = 1, 10
-fig, axes = plt.subplots(figsize=(10,4), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
-k = 0
-for ax_row in axes:
-    for ax in ax_row:
-        img = im[k]
-        img = img[0][0][:,:,:]
-        k = k+1
-        ax.imshow(np.squeeze(img), cmap='Greys_r')
-        ax.xaxis.set_visible(False)
-        ax.yaxis.set_visible(False)
-plt.show()
-
-
+# tf.reset_default_graph()
+# mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
+# sess = tf.Session()
+# net = AnomalyGAN(sess)
+# train_set = tf.image.resize_images(mnist.train.images, [64, 64]).eval(session=sess)
+# train_set = (train_set - 0.5) / 0.5 # normalization; range: -1 ~ 1
+#
+# im = net.train_model(train_set[1:101], epochs=20, batch_size=100, learning_rate=2e-400)
+#
+#
+# rows, cols = 2, 10
+# fig, axes = plt.subplots(figsize=(10,4), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
+# k = 0
+# for ax_row in axes:
+#     for ax in ax_row:
+#         img = im[k]
+#         img = img[0][0][:,:,:]
+#         k = k+1
+#         ax.imshow(np.squeeze(img), cmap='Greys_r')
+#         ax.xaxis.set_visible(False)
+#         ax.yaxis.set_visible(False)
+# plt.show()
+#
+#
 
