@@ -1,10 +1,7 @@
 import tensorflow as tf
 import numpy as np
-import matplotlib.pyplot as plt
-from tensorflow.examples.tutorials.mnist import input_data
 from time import time
-
-
+import datetime
 
 # The Deep Convolutional GAN class, for mnist.
 
@@ -157,7 +154,7 @@ class AnomalyGAN(object):
 
         # optimizer for each network
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-            self.D_optim = tf.train.AdamOptimizer(self.learning_rate, beta1=0.5).minimize(self.D_loss, var_list=D_vars)
+            self.D_optim = tf.train.AdamOptimizer(self.learning_rate/2, beta1=0.5).minimize(self.D_loss, var_list=D_vars)
             self.G_optim = tf.train.AdamOptimizer(self.learning_rate, beta1=0.5).minimize(self.G_loss, var_list=G_vars)
 
         self.saver = tf.train.Saver()
@@ -180,22 +177,31 @@ class AnomalyGAN(object):
         """
         N = len(images) // batch_size # Number of iterations per epoch
         im = list()
-        try:
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(self.save_dir
-                                                                     )) # Restore if checkpoint exists.
-        except:
-            self.sess.run(tf.global_variables_initializer()) # Otherwise initialize.
+        generator_loss = list()
+        discriminator_loss = list()
+        self.sess.run(tf.global_variables_initializer()) # Otherwise initialize.
         print('Starting GAN training ...')
         for epoch in range(epochs):
             idx = np.random.permutation(len(images))
             images = images[idx]
-            if verbose: print('='*30 + f' Epoch {epoch+1} ' + '='*30)
+            if verbose: print('='*30 + ' Epoch {} '.format(epoch+1) + '='*30)
             batch_start = 0
             batch_end = batch_size
+            t=-1
             for i in range(N):
+                print('\r{0}/{1} iterations, ETA: {2}'.format(i, N, datetime.timedelta(
+                    seconds=t * (N - i))),
+                    flush=True, end='')
+                start = time()
                 if batch_end <= len(images):
                     batch = images[batch_start:batch_end, :, :, :]
                     batch_z = np.random.normal(0, 1, size=(batch_size, 1, 1, self.z_dim))
+                    if epoch > 5:
+                        _ = self.sess.run([self.G_optim],
+                                                  feed_dict={self.x: batch, self.z: batch_z,
+                                                             self.learning_rate: learning_rate,
+                                                             self.isTrain: True})
+
                     _, d_loss = self.sess.run([self.D_optim, self.D_loss],
                                                feed_dict={self.x: batch, self.z: batch_z,
                                                           self.learning_rate: learning_rate,
@@ -205,14 +211,17 @@ class AnomalyGAN(object):
                                                                                      self.isTrain: True})
                     batch_start = batch_end
                     batch_end = batch_end + batch_size
+                if i % 100 == 0: t = time() - start
             if verbose:
-                print(f'Generator loss {g_loss}')
-                print(f'Discriminator loss {d_loss}')
+                print('Generator loss {}'.format(g_loss))
+                print('Discriminator loss {}'.format(d_loss))
+            generator_loss.append(g_loss)
+            discriminator_loss.append(d_loss)
             z = np.random.normal(0, 1, size=(1, 1, 1, self.z_dim))
             G = self.sess.run([self.G_z], feed_dict={self.z: z, self.isTrain: False})
             im.append(G)
             self.saver.save(self.sess, save_path=self.save_dir + 'AnomalyGAN.ckpt') # Save parameters.
-        return im
+        return im, generator_loss, discriminator_loss
 
     def sampler(self, z):
         """
@@ -246,28 +255,142 @@ class AnomalyGAN(object):
             return o
 
 
-tf.reset_default_graph()
-mnist = input_data.read_data_sets('MNIST_data', one_hot=True, reshape=False, validation_size=5000)
-sess = tf.Session()
-net = AnomalyGAN(sess)
-train_set = tf.image.resize_images(mnist.train.images, [64, 64]).eval(session=sess)
-train_set = (train_set - 0.5) / 0.5 # normalization; range: -1 ~ 1
 
-im = net.train_model(train_set, epochs=20, batch_size=100, learning_rate=2e-4)
+def init_anomaly(sess, anomalygan):
+    """
+    Initiates graph for anomaly detection
+
+    :param sess: Tensorflow session
+    :param anomalygan: AnomalyGan object
+    :return optim: Tensorflow optimizer
+    :return loss: Tensorflow placeholder
+        The loss
+    :return resloss: Tensorflow placeholder
+        Residual loss
+    :return discloss: Tensorflow placeholder
+        Discriminator loss
+    :return w: Tensorflow variable
+        Latent space vector
+    :return samples: Tensorflow placeholder
+        generated image from latent space vector
+    :return query: Tensorflow placeholder
+        Query
+    :return grads: Tensorflow placeholder
+        Gradients
+    """
+    learning_rate = 0.25  # Latent space learning rate.
+    beta1 = 0.5
+    n_seed = 1
+    # Create placeholders and variables.
+    w = tf.Variable(initial_value=tf.random_normal([n_seed, 1, 1, anomalygan.z_dim], 0, 1),
+                         name='qnoise')
+
+    samples = anomalygan.sampler(w)
+    query = tf.placeholder(shape=[1, 64, 64, 1], dtype=tf.float32)
+    _, real = anomalygan.discrimimnator_mnist(query, reuse=True)
+    _, fake = anomalygan.discrimimnator_mnist(samples, reuse=True)
+
+    resloss = tf.reduce_sum(tf.abs(samples - query))
+    discloss = tf.reduce_sum(tf.abs(real - fake))
+    count = tf.reduce_sum(tf.cast(tf.equal(query, -1), tf.int32))
+    loss = 0.9 * resloss + 0.1 * discloss
+    grads = tf.gradients(resloss, w)
+
+    # Optimizer
+    optim = tf.train.AdamOptimizer(learning_rate, beta1=beta1).minimize(loss, var_list=w)
+    adam_init = [var.initializer for var in tf.global_variables() if 'qnoise/Adam' in var.name]
+    sess.run(adam_init)
+    beta_init = [var.initializer for var in tf.global_variables() if 'beta1_power' in var.name]
+    sess.run(beta_init)
+    beta_init = [var.initializer for var in tf.global_variables() if 'beta2_power' in var.name]
+    sess.run(beta_init)
+
+    return optim, loss, resloss, discloss, w, samples, query, grads
 
 
-rows, cols = 1, 10
-fig, axes = plt.subplots(figsize=(10,4), nrows=rows, ncols=cols, sharex=True, sharey=True, squeeze=False)
-k = 0
-for ax_row in axes:
-    for ax in ax_row:
-        img = im[k]
-        img = img[0][0][:,:,:]
-        k = k+1
-        ax.imshow(np.squeeze(img), cmap='Greys_r')
-        ax.xaxis.set_visible(False)
-        ax.yaxis.set_visible(False)
-plt.show()
+def anomaly(sess, query_image, optim, loss, resloss, discloss, w, query, grads, samples, seeds):
+    """
+    Calculates anomaly scores on query image using len(seeds) latent vectors
+
+    :param sess: Tensorflow session
+    :param query_image: numpy array
+    :param optim: Tensorflow optimizer
+    :param loss: Tensorflow placeholder
+        The loss
+    :param resloss: Tensorflow placeholder
+        Residual loss
+    :param discloss: Tensorflow placeholder
+        Discriminator loss
+    :param w: Tensorflow variable
+        Latent space vector
+    :param query: Tensorflow placeholder
+        Query
+    :param grads: Tensorflow placeholder
+        Gradients
+    :param samples: Tensorflow placeholder
+        Generated image from latent space vector
+    :param seeds: int
+        seed
+    :return G: numpy array
+        reconstructed images
+    :return losses: numpy array
+        losses
+    :return r_loss: numpy array
+        reconstruction losses
+    :return d_loss: numpy array
+        discriminator losses
+    :return noise: numpy array
+        latent vectors
+    """
+    l = len(seeds)
+    G = np.zeros((l, 64, 64, 1))
+    losses = np.zeros((l,1))
+    r_loss = np.zeros((l,1))
+    d_loss = np.zeros((l,1))
+    noise = np.zeros((l, 1, 1, w.get_shape()[-1]))
+    for i, seed in enumerate(seeds):
+        tf.set_random_seed(seed)
+        sess.run(w.initializer)
+        G[i, :, :, :], losses[i], r_loss[i], d_loss[i], noise[i, :] = anomaly_score(sess, samples, query_image, query, optim, loss, resloss, discloss,w, grads)
+    return G, losses, r_loss, d_loss, noise
 
 
+def anomaly_score(sess, sample, query_image, query, optim, loss, resloss, discloss, w, grads):
+    """
+    Calculates anomaly score/loss on one latent vector
 
+    :param sess: Tensorflow session
+    :param sample: Tensorflow placeholder
+        Generated image from latent space vector
+    :param query_image: numpy array
+    :param query: Tensorflow placeholder
+        Query
+    :param optim: Tensorflow optimizer
+    :param loss: Tensorflow placeholder
+        The loss
+    :param resloss: Tensorflow placeholder
+        Residual loss
+    :param discloss: Tensorflow placeholder
+        Discriminator loss
+    :param w: Tensorflow variable
+        Latent space vector
+    :param grads: Tensorflow placeholder
+        Gradients
+    :return samples: numpy array
+        reconstructed image
+    :return losses: numpy array
+        loss
+    :return r_loss: numpy array
+        reconstruction loss
+    :return d_loss: numpy array
+        discriminator loss
+    :return z_sample: numpy array
+        latent vector
+    """
+    for r in range(5):
+        _, losses, r_loss, d_loss, noise, gradients, samples = sess.run(
+            [optim, loss, resloss, discloss, w, grads, sample],
+            feed_dict={query: query_image})
+    z_sample = noise
+    samples = sample.eval(session=sess, feed_dict={w: z_sample})
+    return samples, losses, r_loss, d_loss, z_sample
